@@ -1,0 +1,11 @@
+openai
+langgraph
+langchain
+chromadb
+sqlalchemy
+psycopg2-binary
+streamlit
+pydantic
+pymupdf
+pillow
+python-dotenv
