@@ -2,3 +2,5 @@ processed_data
 physics_chroma_db
 Books
 __pycache__
+generated_manim
+generated_diagrams

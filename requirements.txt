@@ -9,3 +9,8 @@ pydantic
 pymupdf
 pillow
 python-dotenv
+fastapi
+uvicorn
+requests
+mcp
+manim

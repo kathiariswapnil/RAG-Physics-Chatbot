@@ -1,4 +1,4 @@
-from models import PhysicsChunk
+from PDF_operations.models import PhysicsChunk
 from pathlib import Path
 import json
 import os

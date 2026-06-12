@@ -1,486 +1,238 @@
+from Client_folder.manim_mcp_client import generate_physics_video_mcp
+from Client_folder.mcp_client import (
+    classify_query_mcp,
+    generate_diagram_mcp,
+    retrieve_chunks_mcp,
+    route_tool_mcp,
+)
+from PDF_operations.chunks_logics import build_context
+from langgraph.graph import END, StateGraph
 from models import PhysicsRAGState
-from langgraph.graph import StateGraph, END
-from semantic_search import retrieve_chunks
-from chunks_logics import build_context
 from openai import OpenAI
+from prompt_templates import build_answer_prompt
 
 
 client = OpenAI()
 
 
+def build_prompt(mode, context, question):
+    return build_answer_prompt(mode=mode, context=context, question=question)
+
+
 def classify_question(state):
-    response = (
-
-        client.chat.completions.create(
-
-            model="gpt-4.1-mini",
-
-            messages=[
-
-                {
-
-                    "role": "system",
-
-                    "content": """
-You are a physics question classifier.
-
-Classify the question into ONE category only.
-
-Categories:
-
-- theory
-- derivation
-- numerical
-- comparison
-
-Return ONLY the category name.
-"""
-                },
-
-                {
-
-                    "role": "user",
-
-                    "content":
-                        state.question
-                }
-            ],
-
-            temperature=0
-        )
-    )
-
-    query_type = (
-        response
-        .choices[0]
-        .message.content
-        .strip()
-        .lower()
-    )
+    query_type = classify_query_mcp(state.question)
     state.query_type = query_type
+    state.execution_trace.append(f"classifier -> {query_type}")
     return state
+
+
+def route_tool(state):
+    tools = route_tool_mcp(state.question)
+    state.selected_tools = tools
+    state.execution_trace.append(f"tool_router -> {tools}")
+    return state
+
 
 def route_by_query_type(state):
     return state.query_type
 
+
 def rewrite_query(state):
-    state.rewritten_query = f"CBSE Physics "f"{state.query_type} "f"{ state.question}"
+    state.rewritten_query = f"CBSE Physics {state.query_type} {state.question}"
     return state
 
+
 def retrieval_node(state):
-    chunks = retrieve_chunks(state.rewritten_query, top_k=5)
+    chunks = retrieve_chunks_mcp(state.rewritten_query, top_k=5)
     if not chunks:
         state.no_context_found = True
+        state.execution_trace.append("retrieval -> no chunks found")
         return state
+
     state.retrieved_chunks = chunks
+    state.execution_trace.append(f"retrieval -> {len(chunks)} chunks")
     return state
+
 
 def theory_generator(state):
     if state.no_context_found:
         state.final_prompt = None
         return state
-    
+
     context = build_context(state.retrieved_chunks)
-    state.final_prompt = f"""
-You are a strict CBSE Physics tutor.
-
-Answer ONLY using the provided context.
-
-IMPORTANT RULES:
-
-- Do NOT use outside knowledge.
-- Do NOT guess.
-- Do NOT fabricate information.
-- If answer is not present in context,
-  reply exactly:
-
-"No relevant information found in the knowledge base."
-
-Generate a 10-mark theory answer.
-
-Include:
-- introduction
-- explanation
-- important points
-- conclusion
-
-IMPORTANT FORMATTING RULES:
-
-1. NEVER write equations like:
-[ equation ]
-
-2. ALWAYS use proper LaTeX blocks:
-
-$$
-equation
-$$
-
-3. Use inline math with:
-$equation$
-
-4. Every physics equation must be in LaTeX.
-
-5. Do NOT use escaped brackets like:
-\( equation \)
-
-6. Use clean readable mathematical formatting.
-
-Generate a FULL-MARKS 10-mark answer.
-
-Rules:
-
-- use board exam style
-- concise but complete
-- use headings
-- include derivation steps
-- include important points
-- avoid unnecessary advanced concepts
-- stay strictly within CBSE syllabus
-
-Use ONLY the provided sources.
-
-When using information,
-mention source references.
-
-Example:
-
-(Source:
-HC Verma Vol 1, Page 233)
-
-Context:
-{context}
-
-Question:
-{state.question}
-"""
+    state.final_prompt = build_prompt(mode="theory", context=context, question=state.question)
+    state.execution_trace.append("generator -> theory prompt built")
     return state
+
 
 def derivation_generator(state):
     if state.no_context_found:
         state.final_prompt = None
         return state
-    
+
     context = build_context(state.retrieved_chunks)
-    state.final_prompt = f"""
-You are a strict CBSE Physics tutor.
-
-Answer ONLY using the provided context.
-
-IMPORTANT RULES:
-
-- Do NOT use outside knowledge.
-- Do NOT guess.
-- Do NOT fabricate information.
-- If answer is not present in context,
-  reply exactly:
-
-"No relevant information found in the knowledge base."
-
-Generate a derivation answer.
-
-Include:
-- introduction
-- formulas
-- derivation steps
-- final formula
-- conclusion
-
-IMPORTANT FORMATTING RULES:
-
-1. NEVER write equations like:
-[ equation ]
-
-2. ALWAYS use proper LaTeX blocks:
-
-$$
-equation
-$$
-
-3. Use inline math with:
-$equation$
-
-4. Every physics equation must be in LaTeX.
-
-5. Do NOT use escaped brackets like:
-\( equation \)
-
-6. Use clean readable mathematical formatting.
-
-Generate a FULL-MARKS 10-mark answer.
-
-Rules:
-
-- use board exam style
-- concise but complete
-- use headings
-- include derivation steps
-- include important points
-- avoid unnecessary advanced concepts
-- stay strictly within CBSE syllabus
-
-Use ONLY the provided sources.
-
-When using information,
-mention source references.
-
-Example:
-
-(Source:
-HC Verma Vol 1, Page 233)
-
-Context:
-{context}
-
-Question:
-{state.question}
-"""
+    state.final_prompt = build_prompt(mode="derivation", context=context, question=state.question)
+    state.execution_trace.append("generator -> derivation prompt built")
     return state
+
 
 def numerical_generator(state):
     if state.no_context_found:
         state.final_prompt = None
         return state
+
     context = build_context(state.retrieved_chunks)
-    state.final_prompt = f"""
-You are a strict CBSE Physics tutor.
-
-Answer ONLY using the provided context.
-
-IMPORTANT RULES:
-
-- Do NOT use outside knowledge.
-- Do NOT guess.
-- Do NOT fabricate information.
-- If answer is not present in context,
-  reply exactly:
-
-"No relevant information found in the knowledge base."
-
-Solve step-by-step.
-
-Format:
-
-1. Given
-2. Formula Used
-3. Substitution
-4. Calculation
-5. Final Answer with Units
-
-- Use Greek symbols properly
-- Use proper mathematical notation
-- Use LaTeX for all formulas
-- Never write raw escape characters
-- Put every major equation in block math format
-
-IMPORTANT FORMATTING RULES:
-
-1. NEVER write equations like:
-[ equation ]
-
-2. ALWAYS use proper LaTeX blocks:
-
-$$
-equation
-$$
-
-3. Use inline math with:
-$equation$
-
-4. Every physics equation must be in LaTeX.
-
-5. Do NOT use escaped brackets like:
-\( equation \)
-
-6. Use clean readable mathematical formatting.
-
-Generate a FULL-MARKS 10-mark answer.
-
-Rules:
-
-- use board exam style
-- concise but complete
-- use headings
-- include derivation steps
-- include important points
-- avoid unnecessary advanced concepts
-- stay strictly within CBSE syllabus
-
-Use ONLY the provided sources.
-
-When using information,
-mention source references.
-
-Example:
-
-(Source:
-HC Verma Vol 1, Page 233)
-
-Context:
-{context}
-
-Question:
-{state.question}
-"""
+    state.final_prompt = build_prompt(mode="numerical", context=context, question=state.question)
+    state.execution_trace.append("generator -> numerical prompt built")
     return state
+
 
 def comparison_generator(state):
     if state.no_context_found:
         state.final_prompt = None
         return state
+
     context = build_context(state.retrieved_chunks)
-    state.final_prompt = f"""
-You are a strict CBSE Physics tutor.
-
-Answer ONLY using the provided context.
-
-IMPORTANT RULES:
-
-- Do NOT use outside knowledge.
-- Do NOT guess.
-- Do NOT fabricate information.
-- If answer is not present in context,
-  reply exactly:
-
-"No relevant information found in the knowledge base."    
-
-Compare the concepts clearly.
-
-Use:
-- definitions
-- differences table
-- examples
-
-IMPORTANT FORMATTING RULES:
-
-1. NEVER write equations like:
-[ equation ]
-
-2. ALWAYS use proper LaTeX blocks:
-
-$$
-equation
-$$
-
-3. Use inline math with:
-$equation$
-
-4. Every physics equation must be in LaTeX.
-
-5. Do NOT use escaped brackets like:
-\( equation \)
-
-6. Use clean readable mathematical formatting.
-
-Generate a FULL-MARKS 10-mark answer.
-
-Rules:
-
-- use board exam style
-- concise but complete
-- use headings
-- include derivation steps
-- include important points
-- avoid unnecessary advanced concepts
-- stay strictly within CBSE syllabus
-
-Use ONLY the provided sources.
-
-When using information,
-mention source references.
-
-Example:
-
-(Source:
-HC Verma Vol 1, Page 233)
-
-Context:
-{context}
-
-Question:
-{state.question}
-"""
+    state.final_prompt = build_prompt(mode="comparison", context=context, question=state.question)
+    state.execution_trace.append("generator -> comparison prompt built")
     return state
+
+
+ANSWER_GENERATORS = {
+    "theory": theory_generator,
+    "derivation": derivation_generator,
+    "numerical": numerical_generator,
+    "comparison": comparison_generator,
+}
+
+
+def run_retrieval_tool(state):
+    state.execution_trace.append("orchestrator -> retrieval pipeline")
+    state = classify_question(state)
+    state = rewrite_query(state)
+    state = retrieval_node(state)
+
+    if state.no_context_found:
+        return state, None
+
+    generator = ANSWER_GENERATORS.get(state.query_type)
+    if generator is None:
+        state.execution_trace.append(f"generator -> unsupported query type: {state.query_type}")
+        return state, None
+
+    state = generator(state)
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {
+                "role": "user",
+                "content": state.final_prompt,
+            }
+        ],
+    )
+    return state, response.choices[0].message.content
+
+
+def run_diagram_tool(state):
+    state.execution_trace.append("orchestrator -> diagram tool")
+    result = generate_diagram_mcp(state.question)
+    image_path = result.get("image_path")
+    if image_path:
+        state.generated_diagrams.append(image_path)
+        state.execution_trace.append("diagram_tool -> image generated")
+        return state, "Diagram generated below."
+
+    state.execution_trace.append("diagram_tool -> no image returned")
+    return state, "Diagram generation failed: no image was returned."
+
+
+def run_video_tool(state):
+    state.execution_trace.append("orchestrator -> Manim video tool")
+    result = generate_physics_video_mcp(
+        topic=state.question,
+        question=state.question,
+        quality="low",
+        render=True,
+    )
+    if not isinstance(result, dict):
+        state.execution_trace.append("video_tool -> invalid result")
+        return state, "Video generation failed: invalid result returned."
+
+    if result.get("skipped"):
+        state.execution_trace.append("video_tool -> skipped by LLM")
+        return state, None
+
+    rendered = bool(result.get("rendered"))
+    video_path = result.get("video_path")
+    if rendered and video_path:
+        state.generated_videos.append(video_path)
+
+    state.execution_trace.append("video_tool -> rendered" if rendered else "video_tool -> scene generated")
+    status = "Rendered successfully." if rendered else "Scene code generated, but video rendering did not complete."
+    return state, f"""
+# Explanatory Video
+
+Scene:
+{result.get('scene_name')}
+
+Scene file:
+{result.get('scene_file')}
+
+Rendered:
+{result.get('rendered')}
+
+Video path:
+{result.get('video_path') or 'Not rendered'}
+
+Status:
+{status}
+"""
+
+
+TOOL_EXECUTORS = {
+    "retrieval": run_retrieval_tool,
+    "diagram_generation": run_diagram_tool,
+    "video_generation": run_video_tool,
+}
+
+
+def orchestration_node(state):
+    outputs = []
+    for tool_name in state.selected_tools:
+        executor = TOOL_EXECUTORS.get(tool_name)
+        if executor is None:
+            state.execution_trace.append(f"orchestrator -> unsupported tool: {tool_name}")
+            continue
+
+        state, output = executor(state)
+        if output:
+            outputs.append(output)
+
+    state.final_answer = "\n\n".join(outputs)
+    return state
+
 
 def llm_node(state):
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
-        messages=[{
-            "role": "user",
-            "content":state.final_prompt
-        }]
+        messages=[
+            {
+                "role": "user",
+                "content": state.final_prompt,
+            }
+        ],
     )
-    state.final_answer = (
-        response
-        .choices[0]
-        .message.content
-    )
+    state.final_answer = response.choices[0].message.content
+    state.execution_trace.append("llm -> response generated")
     return state
 
 
 graph = StateGraph(PhysicsRAGState)
-
-
-graph.add_node("classifier",classify_question)
-
-graph.add_node("rewrite",rewrite_query)
-
-graph.add_node("retrieve",retrieval_node)
-
-graph.add_node("theory",theory_generator)
-
-graph.add_node("derivation",derivation_generator)
-
-graph.add_node("numerical",numerical_generator)
-
-graph.add_node("comparison",comparison_generator)
-
-graph.add_node("llm",llm_node)
-
-
-graph.set_entry_point("classifier")
-
-graph.add_conditional_edges(
-    "classifier",
-    route_by_query_type,
-    {
-        "theory":
-            "rewrite",
-        "derivation":
-            "rewrite",
-        "numerical":
-            "rewrite",
-        "comparison":
-            "rewrite"
-    }
-)
-
-graph.add_edge("rewrite","retrieve")
-
-graph.add_conditional_edges(
-    "retrieve",
-    route_by_query_type,
-    {
-        "theory":
-            "theory",
-        "derivation":
-            "derivation",
-        "numerical":
-            "numerical",
-        "comparison":
-            "comparison"
-    }
-)
-
-graph.add_edge("theory","llm")
-
-graph.add_edge("derivation","llm")
-
-graph.add_edge("numerical","llm")
-
-graph.add_edge("comparison","llm")
-
-graph.add_edge("llm",END)
-
+graph.add_node("route_tool", route_tool)
+graph.add_node("orchestrator", orchestration_node)
+graph.set_entry_point("route_tool")
+graph.add_edge("route_tool", "orchestrator")
+graph.add_edge("orchestrator", END)
 
 app = graph.compile()
 

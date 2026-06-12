@@ -1,6 +1,5 @@
-from models import Conversation,Message
-from db import SessionLocal
-from models import Message
+from Database_operations.models import Conversation, Message
+from Database_operations.db import SessionLocal
 
 # =========================================
 # CREATE CONVERSATION
