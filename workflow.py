@@ -228,8 +228,13 @@ def llm_node(state):
 
 
 graph = StateGraph(PhysicsRAGState)
+# add nodes function here 
 graph.add_node("route_tool", route_tool)
 graph.add_node("orchestrator", orchestration_node)
+
+
+
+#add graph edges here
 graph.set_entry_point("route_tool")
 graph.add_edge("route_tool", "orchestrator")
 graph.add_edge("orchestrator", END)

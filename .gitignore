@@ -4,3 +4,4 @@ Books
 __pycache__
 generated_manim
 generated_diagrams
+.venv
