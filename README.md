@@ -191,3 +191,5 @@ Create an animation explaining momentum.
 - Static diagram requests call the diagram service, not the video service.
 - Animation/video requests are decided by the LLM router and the Manim MCP server's LLM decision prompt.
 - Answers are instructed to stay grounded in retrieved textbook context.
+
+## swapnil and soviks intro class and intro session 
